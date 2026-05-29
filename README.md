@@ -1,126 +1,98 @@
 # Pipeline AWS — Clustering de Viviendas con K-Means
-**Autor:** Rodolfo Villarreal Rivera (`rodriveracr`)
+**Autor / Author:** Rodolfo Villarreal Rivera (`rodriveracr`)
 
----
+## Español
 
-## Arquitectura
+### Qué hace
+Este proyecto agrupa viviendas similares con K-Means y guarda el resultado en AWS. El flujo original usa S3, EC2, SageMaker y DynamoDB. También incluye una ejecución local con `local_run.py` y un notebook de análisis de clusters.
 
-```
-Viviendas_limpio.csv
-        │
-        ▼
-┌─────────────┐     upload raw CSV      ┌────────────────────────┐
-│   Local /   │ ─────────────────────►  │  S3 (rodriveracr-      │
-│   EC2       │                         │  viviendas-pipeline)   │
-└─────────────┘                         └────────────┬───────────┘
-        │                                            │
-        │  descarga + preprocesa                     │ train.protobuf
-        ▼                                            ▼
-┌─────────────────┐                    ┌─────────────────────────┐
-│  EC2 t3.medium  │ ─── sube datos ──► │  SageMaker K-Means      │
-│  (preprocessing)│                    │  (ml.c5.xlarge, k=4)    │
-└─────────────────┘                    └────────────┬────────────┘
-                                                    │ etiquetas cluster
-                                                    ▼
-                                       ┌─────────────────────────┐
-                                       │  DynamoDB               │
-                                       │  rodriveracr_viviendas  │
-                                       │  _clusters              │
-                                       └─────────────────────────┘
+### Arquitectura
+
+```mermaid
+flowchart LR
+        A[Viviendas.xlsx / Viviendas_limpio.csv] --> B[S3]
+        B --> C[EC2 preprocesa]
+        C --> D[SageMaker K-Means]
+        D --> E[DynamoDB]
 ```
 
----
+### Archivos clave
 
-## Dataset — `Viviendas_limpio.csv`
-| Columna       | Tipo     | Descripción                    |
-|---------------|----------|--------------------------------|
-| Precio        | float    | Precio de la vivienda (€)      |
-| Superficie    | int      | Superficie en m²               |
-| Antiguedad    | float    | Años de antigüedad             |
-| VPO           | int      | Vivienda de protección oficial |
-| Calefaccion   | string   | Eléctrica / Central / Gas / No |
-| Habitaciones  | int      | Número de habitaciones         |
-| Ascensor      | string   | Si / No                        |
-| Garaje        | string   | Si / No                        |
-| Precio_m2     | float    | Precio por m²                  |
+| Archivo | Propósito |
+|---|---|
+| `pipeline.py` | Pipeline principal con CLI (`--role-arn`, `--upload-only`, `--skip-sagemaker`) |
+| `upload_and_run.py` | Sube el CSV a S3 y ejecuta el pipeline |
+| `launch_ec2.py` | Lanza EC2 para correr el flujo |
+| `ec2_userdata.sh` | Bootstrap de la instancia EC2 |
+| `local_run.py` | Ejecución local del K-Means con scikit-learn |
+| `cluster_analysis.ipynb` | Notebook con visualizaciones de clusters |
+| `requirements.txt` | Dependencias del proyecto |
+| `RUN_LOCAL.md` | Pasos para ejecutar localmente |
 
-**748 registros** — los clusters K-Means agrupan viviendas similares.
+### Ejecución local
 
----
-
-## Archivos del proyecto
-
-| Archivo           | Propósito                                        |
-|-------------------|--------------------------------------------------|
-| `pipeline.py`     | Pipeline principal (S3 → EC2 → SageMaker → DynamoDB) |
-| `launch_ec2.py`   | Lanza instancia EC2 con el pipeline             |
-| `ec2_userdata.sh` | Script de bootstrap para la instancia EC2       |
-| `iam_policy.json` | Políticas IAM necesarias                        |
-
----
-
-## Ejecución rápida
-
-### Opción A — Correr localmente (con credenciales AWS configuradas)
-```bash
-pip install boto3 pandas numpy scikit-learn sagemaker
-python pipeline.py
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python local_run.py
 ```
 
-### Opción B — Correr en EC2 (recomendado para producción)
-```bash
-# 1. Configurar credenciales AWS
-aws configure
+### Notebook de análisis
+Abre `cluster_analysis.ipynb` y selecciona el kernel `Python (Pipeline AWS)`.
 
-# 2. Subir código y lanzar EC2
-python launch_ec2.py
+### Requisitos AWS
+1. Cuenta AWS con permisos para S3, EC2, SageMaker y DynamoDB.
+2. Rol IAM compatible con SageMaker, por ejemplo `EC2SageMakerPipelineRole`.
+3. `aws configure` listo si vas a ejecutar en AWS.
 
-# 3. Ver logs en tiempo real
-aws s3 cp s3://rodriveracr-viviendas-pipeline/logs/ . --recursive
-```
+### Estructura en S3
 
----
-
-## Requisitos previos
-
-1. **Cuenta AWS** con los servicios habilitados: S3, EC2, SageMaker, DynamoDB
-2. **Rol IAM** `EC2SageMakerPipelineRole` creado con la política de `iam_policy.json`
-3. **Key pair EC2** llamado `rodriveracr-key` (o editar `launch_ec2.py`)
-4. **Python 3.8+** con `boto3`, `sagemaker`, `pandas`, `scikit-learn`
-
----
-
-## Estructura en S3
-
-```
+```text
 s3://rodriveracr-viviendas-pipeline/
 ├── viviendas/
 │   ├── raw/
-│   │   └── Viviendas_limpio.csv
 │   ├── processed/
-│   │   ├── train.protobuf
-│   │   └── viviendas_procesado.csv
 │   ├── model/
-│   │   └── <job-name>/output/model.tar.gz
 │   └── inference/
-│       ├── input.csv
-│       └── output/input.csv.out
-├── code/
-│   └── pipeline.py
 └── logs/
-    └── pipeline_output_<timestamp>.log
 ```
 
+## English
+
+### What it does
+This project clusters similar houses using K-Means and stores the results in AWS. The original pipeline uses S3, EC2, SageMaker, and DynamoDB. It also includes a local runner (`local_run.py`) and a cluster analysis notebook.
+
+### Key files
+
+| File | Purpose |
+|---|---|
+| `pipeline.py` | Main pipeline with CLI flags (`--role-arn`, `--upload-only`, `--skip-sagemaker`) |
+| `upload_and_run.py` | Uploads the CSV to S3 and runs the pipeline |
+| `launch_ec2.py` | Launches EC2 for the workflow |
+| `ec2_userdata.sh` | EC2 bootstrap script |
+| `local_run.py` | Local K-Means run using scikit-learn |
+| `cluster_analysis.ipynb` | Notebook with cluster visualizations |
+| `requirements.txt` | Project dependencies |
+| `RUN_LOCAL.md` | Local run instructions |
+
+### Local run
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python local_run.py
+```
+
+### Notebook
+Open `cluster_analysis.ipynb` and select the `Python (Pipeline AWS)` kernel.
+
+### AWS requirements
+1. AWS account with S3, EC2, SageMaker, and DynamoDB permissions.
+2. A SageMaker-compatible IAM role, for example `EC2SageMakerPipelineRole`.
+3. `aws configure` completed if you want to run in AWS.
+
 ---
 
-## Tabla DynamoDB — `rodriveracr_viviendas_clusters`
-
-Cada ítem tiene:
-- `vivienda_id` (PK) — índice del registro
-- `cluster` — grupo K-Means asignado (0–3)
-- `owner` — `rodriveracr`
-- Todas las features numéricas del dataset
-
----
-
-*Pipeline generado para rodriveracr — Rodolfo Villarreal Rivera*
+*Project maintained for rodriveracr — Rodolfo Villarreal Rivera*

@@ -4,6 +4,7 @@ Autor: Rodolfo Villarreal Rivera (rodriveracr)
 Servicios: S3 → EC2 (preprocesamiento) → SageMaker K-Means → DynamoDB
 """
 
+import argparse
 import boto3
 import pandas as pd
 import numpy as np
@@ -120,10 +121,15 @@ def paso2_preprocesar_en_ec2(raw_s3_key: str):
 # ═══════════════════════════════════════════════════════════════
 # PASO 3 — Entrenar K-Means con SageMaker
 # ═══════════════════════════════════════════════════════════════
-def paso3_sagemaker_kmeans(train_key: str):
+def paso3_sagemaker_kmeans(train_key: str, role_arn: str = None):
     print(f"\n[PASO 3] Entrenando K-Means en SageMaker (k={N_CLUSTERS})...")
 
-    role        = get_execution_role()          # rol IAM asociado a SageMaker
+    # role puede ser pasado (ARN) cuando se ejecuta fuera de SageMaker
+    if role_arn:
+        role = role_arn
+    else:
+        role = get_execution_role()
+
     output_path = f"s3://{BUCKET_NAME}/{PREFIX}/model/"
 
     # Imagen oficial de KMeans de SageMaker
@@ -251,14 +257,49 @@ def paso5_guardar_en_dynamodb(df: pd.DataFrame):
 # MAIN
 # ═══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pipeline AWS — KMeans clustering for viviendas")
+    parser.add_argument("--region", default=REGION)
+    parser.add_argument("--bucket", default=BUCKET_NAME)
+    parser.add_argument("--prefix", default=PREFIX)
+    parser.add_argument("--dynamodb-table", default=DYNAMODB_TABLE)
+    parser.add_argument("--n-clusters", type=int, default=N_CLUSTERS)
+    parser.add_argument("--local-csv", default=LOCAL_CSV,
+                        help="Local CSV file to upload and process")
+    parser.add_argument("--role-arn", default=None, help="ARN del rol IAM para SageMaker (opcional)")
+    parser.add_argument("--upload-only", action="store_true", help="Solo subir el CSV a S3 y salir")
+    parser.add_argument("--skip-sagemaker", action="store_true", help="No ejecutar entrenamiento en SageMaker (solo preproc + upload)")
+    args = parser.parse_args()
+
+    # Aplicar argumentos a la configuración global
+    REGION = args.region
+    BUCKET_NAME = args.bucket
+    PREFIX = args.prefix
+    DYNAMODB_TABLE = args.dynamodb_table
+    N_CLUSTERS = args.n_clusters
+    LOCAL_CSV = args.local_csv
+
     print("=" * 60)
     print("  PIPELINE VIVIENDAS — rodriveracr (Rodolfo Villarreal Rivera)")
     print("=" * 60)
 
-    raw_key              = paso1_subir_a_s3()
+    # PASO 1: subir dataset
+    raw_key = paso1_subir_a_s3()
+    if args.upload_only:
+        print("Subida completada (modo --upload-only).")
+        exit(0)
+
+    # PASO 2: preprocesamiento (sube datos procesados a S3)
     train_key, df, fcols = paso2_preprocesar_en_ec2(raw_key)
-    estimator            = paso3_sagemaker_kmeans(train_key)
-    df_with_clusters     = paso4_inferencia(estimator, df, fcols)
+
+    if args.skip_sagemaker:
+        print("Se omitió el entrenamiento en SageMaker (--skip-sagemaker). Datos procesados subidos a S3.")
+        exit(0)
+
+    # PASO 3: entrenar en SageMaker (acepta role ARN si se pasó por CLI)
+    estimator = paso3_sagemaker_kmeans(train_key, role_arn=args.role_arn)
+
+    # PASO 4: inferencia y PASO 5: guardar en DynamoDB
+    df_with_clusters = paso4_inferencia(estimator, df, fcols)
     paso5_guardar_en_dynamodb(df_with_clusters)
 
     print("\n✅ Pipeline completado exitosamente.")

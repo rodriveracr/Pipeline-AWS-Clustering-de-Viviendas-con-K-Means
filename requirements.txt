@@ -1,0 +1,7 @@
+python>=3.8
+pandas>=1.5
+numpy>=1.24
+scikit-learn>=1.0
+openpyxl>=3.0
+boto3>=1.26
+sagemaker>=2.0
